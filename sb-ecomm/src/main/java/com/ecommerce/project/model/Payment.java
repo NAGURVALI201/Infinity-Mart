@@ -1,0 +1,53 @@
+package com.ecommerce.project.model;
+
+
+import jakarta.persistence.*;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Size;
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+@Entity
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+@Table(name = "payments")
+public class Payment {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long paymentId;
+
+    @OneToOne(mappedBy="payment",cascade = {CascadeType.PERSIST,CascadeType.MERGE})
+    private Order order;
+
+    @NotBlank
+    @Size(min=4,message = "Payment method must contain at least 4 characters")
+    @Column(name = "payment_method")
+    private String paymentMethod;
+
+    @Column(name = "pg_payment_id")
+    private String pgPaymentId;
+
+    @Column(name = "pg_status")
+    private String pgStatus;
+
+    @Column(name = "pg_response_message")
+    private String pgResponseMessage;
+
+    @Column(name = "pg_name")
+    private String pgName;
+
+    public Payment(String paymentMethod,
+                   String pgPaymentId,
+                   String pgStatus,
+                   String pgResponseMessage,
+                   String pgName) {
+        this.paymentMethod = paymentMethod;
+        this.pgPaymentId = pgPaymentId;
+        this.pgStatus = pgStatus;
+        this.pgResponseMessage = pgResponseMessage;
+        this.pgName = pgName;
+    }
+}

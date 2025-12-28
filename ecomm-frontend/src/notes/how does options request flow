@@ -1,0 +1,230 @@
+Got it — let’s slow this down and be **very explicit about WHO does WHAT**.
+No shortcuts, no jargon gaps.
+
+---
+
+# Big Picture (Actors Involved)
+
+There are **3 different players** involved in a browser → Spring Boot request:
+
+1. **Browser** (Chrome, Firefox, etc.)
+2. **Spring Security** (SecurityFilterChain)
+3. **Spring Web CORS Filter** (`CorsFilter`)
+
+Each has a **separate job**.
+
+---
+
+# Step 1: Who sends the OPTIONS request?
+
+### 👉 The **Browser**
+
+When your frontend (React/Angular/etc.) makes a cross-origin request with:
+
+* `Authorization` header (JWT)
+* `POST / PUT / DELETE`
+* `Content-Type: application/json`
+
+The browser **automatically** sends:
+
+```http
+OPTIONS /api/test
+```
+
+📌 You do NOT code this
+📌 You do NOT control this
+📌 Backend never “asks” for OPTIONS
+
+---
+
+# Step 2: Who receives the request first?
+
+### 👉 **Spring Security**
+
+Order of filters:
+
+```
+Request →
+Spring Security Filter Chain →
+CorsFilter →
+Controller
+```
+
+⚠️ Important: **Spring Security sees the request BEFORE CORS logic runs**
+
+So for:
+
+```http
+OPTIONS /api/test
+```
+
+Spring Security asks:
+
+> “Is this request allowed?”
+
+---
+
+# Step 3: What happens WITHOUT `OPTIONS permitAll`?
+
+Spring Security logic:
+
+```java
+.anyRequest().authenticated()
+```
+
+So it thinks:
+
+* OPTIONS has no JWT
+* User is not authenticated
+* ❌ Reject request (401 / 403)
+
+➡️ **Request never reaches CorsFilter**
+➡️ **No CORS headers**
+➡️ Browser blocks everything
+
+💥 Result: *CORS error*
+
+---
+
+# Step 4: What does `OPTIONS permitAll` do?
+
+```java
+.requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
+```
+
+This tells **Spring Security**:
+
+> “If request method is OPTIONS, allow it without authentication.”
+
+Now the flow becomes:
+
+```
+OPTIONS →
+Spring Security ✅ ALLOWS →
+CorsFilter →
+Response with headers
+```
+
+📌 **Spring Security stops blocking OPTIONS**
+
+---
+
+# Step 5: Who actually HANDLES CORS?
+
+### 👉 **Spring Web’s CorsFilter**
+
+**NOT Spring Security**
+
+CorsFilter:
+
+* Reads Origin
+* Checks allowed origins
+* Adds headers like:
+
+  * `Access-Control-Allow-Origin`
+  * `Access-Control-Allow-Headers`
+  * `Access-Control-Allow-Methods`
+
+CorsFilter is activated by:
+
+```java
+http.cors(...)
+```
+
+or a `CorsConfigurationSource` bean.
+
+---
+
+# Step 6: What does `http.cors()` really do?
+
+```java
+http.cors(Customizer.withDefaults());
+```
+
+This tells **Spring Security**:
+
+> “Delegate CORS work to Spring’s CorsFilter.”
+
+Without this:
+
+* CorsFilter never runs
+* No CORS headers are added
+* Browser fails
+
+📌 `http.cors()` does NOT allow requests
+📌 It ONLY enables CORS processing
+
+---
+
+# Step 7: Complete request flow (Correct Setup)
+
+### 1️⃣ Browser sends OPTIONS
+
+```
+OPTIONS /api/test
+```
+
+### 2️⃣ Spring Security
+
+* Sees OPTIONS
+* Matches `permitAll`
+* Lets it pass ✅
+
+### 3️⃣ CorsFilter
+
+* Checks CORS rules
+* Adds CORS headers
+* Responds 200 OK
+
+### 4️⃣ Browser sends real request
+
+```
+GET /api/test
+Authorization: Bearer jwt
+```
+
+### 5️⃣ Spring Security
+
+* JWT filter runs
+* Authenticates user
+* Allows request
+
+### 6️⃣ Controller executes
+
+---
+
+# Summary Table (WHO DOES WHAT)
+
+| Component               | Responsibility                         |
+| ----------------------- | -------------------------------------- |
+| **Browser**             | Sends OPTIONS (preflight)              |
+| **Spring Security**     | Allows or blocks requests              |
+| **CorsFilter**          | Adds CORS headers                      |
+| **`OPTIONS permitAll`** | Stops Security from blocking preflight |
+| **`http.cors()`**       | Enables CorsFilter to run              |
+
+---
+
+# Key sentence (remember this)
+
+> **Spring Security decides IF a request can pass.
+> CorsFilter decides WHAT CORS headers to return.**
+
+They solve **different problems**.
+
+---
+
+# Final takeaway (crystal clear)
+
+* OPTIONS is **handled by Spring Security first**
+* CORS headers are **added by CorsFilter**
+* `OPTIONS permitAll` → *don’t block preflight*
+* `http.cors()` → *actually answer the CORS question*
+
+If you want next, I can:
+
+* Draw this as a sequence diagram
+* Show how to debug OPTIONS in Chrome DevTools
+* Show a minimal working config you can memorize
+
+Just tell me 👍

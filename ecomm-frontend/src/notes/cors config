@@ -1,0 +1,193 @@
+Perfect — now everything clicks.
+With **this exact class**, your observation is **100% correct**, and here is the **precise, accurate flow**.
+
+---
+
+# Why your app works **without** `OPTIONS permitAll`
+
+## The key reason:
+
+👉 **Your `WebConfig` creates a global CORS configuration that is picked up by Spring Security’s `CorsFilter`.**
+
+This is the missing piece.
+
+---
+
+# What your `WebConfig` actually does
+
+```java
+@Configuration
+public class WebConfig implements WebMvcConfigurer {
+```
+
+This registers **global CORS rules** at the **Spring MVC layer**.
+
+So now Spring has:
+
+* Allowed origins
+* Allowed methods (including OPTIONS)
+* Allowed headers
+* Credentials support
+
+---
+
+# What happens when you also have
+
+```java
+http.cors(cors -> {})
+```
+
+Spring Security does the following internally:
+
+1. Detects `WebMvcConfigurer` CORS mappings
+2. Builds a `CorsConfigurationSource`
+3. Inserts a **CorsFilter at the very start** of the Security filter chain
+
+---
+
+# REAL filter order in your app
+
+```
+Request
+ ↓
+CorsFilter   ← injected by http.cors()
+ ↓
+JWT Filter
+ ↓
+UsernamePasswordAuthenticationFilter
+ ↓
+Authorization filters
+ ↓
+Controller
+```
+
+⚠️ **CorsFilter runs BEFORE security logic**
+
+---
+
+# Step-by-step flow for OPTIONS (your case)
+
+### 1️⃣ Browser sends preflight
+
+```http
+OPTIONS /api/test
+Origin: http://localhost:3000
+```
+
+---
+
+### 2️⃣ CorsFilter runs FIRST
+
+CorsFilter sees:
+
+* Valid origin (localhost:3000)
+* OPTIONS method allowed
+* Headers allowed
+
+So it:
+
+* Adds all CORS headers
+* Returns `200 OK`
+* **Stops the chain**
+
+📌 **Spring Security never evaluates authentication**
+📌 `.anyRequest().authenticated()` is never reached
+
+✅ That’s why it works **without**:
+
+```java
+.requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
+```
+
+---
+
+# Why the order in `HttpSecurity` DSL does NOT matter
+
+You wrote:
+
+```java
+http.cors(...)
+.authorizeHttpRequests(...)
+```
+
+Even if `cors()` appears “before” or “after” in the DSL:
+
+🔴 **It does NOT control runtime filter order**
+
+Spring Security:
+
+* Always inserts CorsFilter **at the beginning**
+* DSL order is just configuration syntax
+
+---
+
+# When would your setup FAIL?
+
+Your current setup is **working but conditional**.
+
+It will fail if:
+
+❌ Someone removes `WebConfig`
+❌ Someone disables `http.cors()`
+❌ You add a custom filter before CorsFilter
+❌ Proxy strips OPTIONS
+❌ Different Spring Security version behavior
+
+In those cases, OPTIONS reaches security → blocked.
+
+---
+
+# Why mentors still add `OPTIONS permitAll`
+
+Because it protects against **future changes**.
+
+Think of it as:
+
+* `http.cors()` → *mechanism*
+* `OPTIONS permitAll` → *policy*
+
+Senior teams prefer **explicit policies**.
+
+---
+
+# Final flow summary (crystal clear)
+
+### In your app TODAY:
+
+```
+OPTIONS
+ ↓
+CorsFilter (from WebConfig + http.cors)
+ ↓
+Response sent
+```
+
+### Security filters never see OPTIONS
+
+---
+
+# Final answer (your exact question)
+
+> **Even though `cors()` is configured in the Security chain, it runs first because Spring injects CorsFilter before all security filters. Since your `WebConfig` defines global CORS rules, CorsFilter fully handles OPTIONS and short-circuits the chain — so `OPTIONS permitAll` is not required in your case.**
+
+---
+
+# Recommendation
+
+Your setup is:
+✅ Correct
+✅ Clean
+⚠️ Slightly fragile
+
+**Best practice (production-safe):**
+Keep both.
+
+---
+
+If you want, next I can:
+
+* Show the exact Spring Security source code that inserts CorsFilter
+* Tell you when NOT to use `WebMvcConfigurer` for CORS
+* Help you refactor this to a single clean CORS config
+
+Just say the word 👍

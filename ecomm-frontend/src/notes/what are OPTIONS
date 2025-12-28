@@ -1,0 +1,164 @@
+Great question — this is **core web knowledge** and directly related to the CORS issue you’re seeing.
+
+I’ll explain it clearly, step by step, and tie it back to your Spring Security config.
+
+---
+
+## What is a **Preflight OPTIONS request**?
+
+A **preflight request** is a **browser-only safety check**.
+
+Before the browser sends a *real* cross-origin request (like `POST`, `PUT`, or a request with `Authorization` header), it first asks the server:
+
+> “Hey server, am I allowed to do this?”
+
+That question is sent as an **HTTP `OPTIONS` request**.
+
+---
+
+## Why does the browser send it?
+
+The browser sends a preflight request when **any** of these are true:
+
+✅ Request is cross-origin (frontend and backend are on different origins)
+✅ Request uses non-simple methods (`POST`, `PUT`, `DELETE`, etc.)
+✅ Request includes non-simple headers (like `Authorization`, `Content-Type: application/json`)
+
+JWT authentication **always triggers preflight** because of the `Authorization` header.
+
+---
+
+## What does a Preflight request look like?
+
+Example from browser → backend:
+
+```http
+OPTIONS /api/test/hello HTTP/1.1
+Origin: http://localhost:3000
+Access-Control-Request-Method: GET
+Access-Control-Request-Headers: Authorization
+```
+
+⚠️ **This request has NO body and NO JWT**
+
+It’s just a question.
+
+---
+
+## What does the server need to reply?
+
+The server must respond with **CORS headers**, for example:
+
+```http
+HTTP/1.1 200 OK
+Access-Control-Allow-Origin: http://localhost:3000
+Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS
+Access-Control-Allow-Headers: Authorization, Content-Type
+```
+
+If this response is valid → browser sends the **real request**
+If not → browser **blocks everything**
+
+---
+
+## Why Spring Security breaks this by default
+
+Spring Security sees this:
+
+```http
+OPTIONS /api/test/hello
+```
+
+And says:
+
+> “This request has no authentication → reject”
+
+So the browser never gets permission.
+
+That’s why you see:
+
+* CORS error in browser
+* But Postman works (Postman does NOT send preflight requests)
+
+---
+
+## Why this line fixes it 👇
+
+```java
+.requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
+```
+
+This tells Spring Security:
+
+> “Allow all OPTIONS requests without authentication”
+
+So now the flow is:
+
+1. Browser sends `OPTIONS`
+2. Spring Security allows it ✅
+3. CORS headers are returned
+4. Browser sends real request with JWT
+5. Security filter validates JWT
+6. Request succeeds 🎉
+
+---
+
+## Important: OPTIONS is NOT your API logic
+
+* You **never write controllers** for `OPTIONS`
+* It’s handled automatically by Spring’s CORS filter
+* You just need to **not block it**
+
+Think of it like airport security asking:
+
+> “Is this flight allowed?”
+
+Before boarding actually happens.
+
+---
+
+## Why your mentor’s code is correct
+
+Your mentor explicitly added:
+
+```java
+.requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
+```
+
+That means:
+
+* Preflight requests always pass
+* Browser CORS works
+* JWT still protects real API calls
+
+This is **industry standard** for stateless JWT APIs.
+
+---
+
+## Quick mental model (remember this)
+
+| Step | Who             | What                      |
+| ---- | --------------- | ------------------------- |
+| 1    | Browser         | Sends OPTIONS (preflight) |
+| 2    | Server          | Says yes/no via headers   |
+| 3    | Browser         | Sends real request        |
+| 4    | Spring Security | Validates JWT             |
+
+If step 2 fails → **nothing else happens**
+
+---
+
+## Final takeaway
+
+* **OPTIONS = browser permission check**
+* **Not authentication**
+* **Must always be permitted**
+* **Postman ≠ Browser behavior**
+
+If you want, next I can:
+
+* Explain “simple vs non-simple requests”
+* Show how to debug preflight in DevTools
+* Review your exact CORS config for prod
+
+Just tell me 👍

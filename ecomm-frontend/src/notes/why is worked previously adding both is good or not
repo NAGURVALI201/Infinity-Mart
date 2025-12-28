@@ -1,0 +1,224 @@
+This is a **very sharp observation**, and you’re right to be confused — because the behavior you’re seeing is **real** and **context-dependent**.
+Let’s clear it **precisely**, without hand-waving.
+
+---
+
+# Key correction first (important)
+
+> **CORS does NOT always run after Spring Security.**
+
+When you call:
+
+```java
+http.cors(cors -> {})
+```
+
+Spring Security **injects a CorsFilter at the *very beginning* of the Security filter chain**.
+
+So the actual order becomes:
+
+```
+Request
+ ↓
+CorsFilter   ← (runs FIRST)
+ ↓
+Security filters (JWT, auth, etc.)
+ ↓
+Controller
+```
+
+This is the part most explanations get wrong.
+
+---
+
+# Why your app worked WITHOUT `OPTIONS permitAll`
+
+This is the heart of your question.
+Let’s walk through the **exact flow**.
+
+---
+
+## What `http.cors(cors -> {})` really does internally
+
+It does **two things**:
+
+1. Registers a `CorsFilter`
+2. Inserts it **before** `UsernamePasswordAuthenticationFilter`
+
+So for an OPTIONS request:
+
+```
+OPTIONS /api/test
+```
+
+### Step-by-step flow
+
+### 1️⃣ Request enters Security filter chain
+
+First filter = **CorsFilter**
+
+CorsFilter checks:
+
+* Is this a CORS request? → YES
+* Is this an OPTIONS preflight? → YES
+
+👉 **CorsFilter short-circuits the request**
+
+It:
+
+* Adds CORS headers
+* Returns `200 OK`
+* **DOES NOT forward the request further**
+
+So:
+
+```
+CorsFilter
+  ↳ handles OPTIONS
+  ↳ response sent
+  ↳ security filters never run
+```
+
+✅ Spring Security never gets a chance to block it
+✅ That’s why your app worked
+
+---
+
+## When does Spring Security see OPTIONS then?
+
+Spring Security only sees OPTIONS **if CorsFilter does NOT short-circuit**.
+
+This happens when:
+
+* CORS is disabled
+* No `CorsConfigurationSource`
+* Origin not allowed
+* Custom filter ordering breaks it
+
+In those cases:
+
+```
+OPTIONS →
+Security filters →
+401 / 403 →
+CORS error
+```
+
+---
+
+## Why mentors still add `OPTIONS permitAll`
+
+Because relying on CorsFilter short-circuiting is:
+
+⚠️ **fragile**
+
+Reasons:
+
+* Filter order can change
+* Custom filters can interfere
+* Future Spring Security versions may behave differently
+* Some reverse proxies forward OPTIONS differently
+
+Explicitly permitting OPTIONS makes the system **defensive and predictable**.
+
+---
+
+# Important subtlety (this is senior-level)
+
+### Why `cors(cors -> {})` worked for you
+
+You likely have **one of these**:
+
+* `@CrossOrigin` on controllers
+* A global `CorsConfigurationSource`
+* Spring Boot default CORS config
+* Simple request headers that don’t trigger strict preflight rules
+
+So CorsFilter:
+
+* Recognized the request
+* Fully handled OPTIONS
+* Never passed control to security
+
+---
+
+# Visual comparison
+
+### Your working setup
+
+```
+OPTIONS
+ ↓
+CorsFilter (handles & exits)
+ ↓
+DONE
+```
+
+### Setup without CORS enabled
+
+```
+OPTIONS
+ ↓
+SecurityFilterChain
+ ↓
+401 / 403
+```
+
+---
+
+# Final, precise explanation sentence
+
+> **When `http.cors()` is enabled, CorsFilter runs FIRST and can fully handle OPTIONS requests before Spring Security evaluates authentication.**
+
+That’s why your app worked.
+
+---
+
+# Then why ever add `OPTIONS permitAll`?
+
+Because:
+
+* Not all OPTIONS requests are CORS requests
+* Not all filters short-circuit
+* It prevents accidental security regressions
+* It makes intent explicit
+
+**Best practice ≠ minimum working config**
+
+---
+
+# Final recommendation (what senior teams do)
+
+They use **both**:
+
+```java
+http
+  .cors(Customizer.withDefaults())
+  .authorizeHttpRequests(auth -> auth
+      .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
+      .anyRequest().authenticated()
+  );
+```
+
+This guarantees:
+
+* CORS works
+* Security rules are clear
+* No surprises later
+
+---
+
+# Bottom line (remember this)
+
+* `http.cors()` → **may handle OPTIONS early**
+* `OPTIONS permitAll` → **guarantees Security won’t block**
+* Your behavior is correct, not accidental
+* Mentor’s approach is safer for long-term systems
+
+If you want, I can:
+
+* Show the exact Spring Security source code where CorsFilter is added
+* Draw a real filter ordering diagram
+* Explain when OPTIONS will bypass CorsFilter
+
+Just say 👍

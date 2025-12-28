@@ -1,0 +1,25 @@
+##################################
+# Backend (Spring Boot)
+##################################
+Ecomm-backend/target/
+Ecomm-backend/.mvn/
+Ecomm-backend/*.log
+Ecomm-backend/.classpath
+Ecomm-backend/.project
+Ecomm-backend/.settings/
+
+##################################
+# Frontend (React + Vite)
+##################################
+Ecomm-frontend/node_modules/
+Ecomm-frontend/dist/
+Ecomm-frontend/.env
+Ecomm-frontend/.env.local
+
+##################################
+# Common
+##################################
+.DS_Store
+.idea/
+.vscode/
+*.log
